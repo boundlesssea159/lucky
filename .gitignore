@@ -2,6 +2,10 @@
 /public/hot
 /public/storage
 
+/storage
+/database
+.idea
+/resources
 
 /vendor
 
