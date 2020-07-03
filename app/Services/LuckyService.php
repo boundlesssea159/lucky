@@ -43,7 +43,7 @@ class LuckyService
         if (!$this->canApply($phone)) {
             throw new \Exception('尊敬的用户，您已报名');
         }
-        $this->kafka->send('topic1',json_encode(['phone' => $phone, 'text' => htmlspecialchars($text)]));
+        $this->kafka->send('topic1', json_encode(['phone' => $phone, 'text' => htmlspecialchars($text)]));
         return $this->captchaRepository->getCaptcha($phone);
     }
 
@@ -55,17 +55,28 @@ class LuckyService
      */
     protected function canApply($phone)
     {
+        $offset = (int)substr($phone, 1);
+        return $this->haveRecorded(RedisMessage::APPLY_KEY, $offset, RedisMessage::computeExpireTime()) ? false : true;
+    }
+
+    protected function haveRecorded($key1, $argv1, $argv2)
+    {
         $lua = <<<lua
             local exit = redis.call("exits",KEYS[1]);
             if(exit==0) then
-                redis.call("sAdd",KEYS[1],ARGV[1]);
+                redis.call("setBit",KEYS[1],ARGV[1],1);
                 redis.call("expire",KEYS[1],ARGV[2]);
-                return 1;
+                return 0;
             end;
-            return redis.call("sAdd",KEYS[1],ARGV[1]);
+            return redis.call("setBit",KEYS[1],ARGV[1],1);
 
 lua;
-        return Redis::eval($lua, 1, RedisMessage::APPLY_KEY, $phone, RedisMessage::computeExpireTime());
+        $ret = Redis::eval($lua, 1, $key1, $argv1, $argv2);
+        if ($ret) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -99,17 +110,8 @@ lua;
      */
     protected function canDraw($phone)
     {
-        $lua = <<<lua
-            local exit = redis.call("exits",KEYS[1]);
-            if(exit==0) then
-                redis.call("sAdd",KEYS[1],ARGV[1]);
-                redis.call("expire",KEYS[1],ARGV[2]);
-                return 1;
-            end;
-            return redis.call("sAdd",KEYS[1],ARGV[1]);
-
-lua;
-        return Redis::eval($lua, 1, sprintf(RedisMessage::PHONE_KEY, date('Y-m-d')), $phone, RedisMessage::PHONE_KEY_EXPIRES);
+        $offset = (int)substr($phone, 1);
+        return $this->haveRecorded(sprintf(RedisMessage::PHONE_KEY, date('Y-m-d')), $offset, RedisMessage::PHONE_KEY_EXPIRES) ? false : true;
     }
 
     /**
@@ -206,7 +208,7 @@ lua;
      */
     protected function recordAward($phone, $award)
     {
-        $this->kafka->send('topic2',json_encode(['phone' => $phone, 'award' => $award]));
+        $this->kafka->send('topic2', json_encode(['phone' => $phone, 'award' => $award]));
     }
 
 
